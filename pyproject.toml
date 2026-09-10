@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leakcheck"
+version = "0.1.0"
+description = "Find features that read data they were never supposed to see. Temporal leakage detection by metamorphic testing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Raunak Sood" }]
+keywords = ["leakage", "data-leakage", "machine-learning", "testing", "time-series", "point-in-time", "feature-engineering"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = ["pandas>=2.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "numpy>=1.26"]
+
+[project.urls]
+Homepage = "https://github.com/quantraunak/leakcheck"
+Issues = "https://github.com/quantraunak/leakcheck/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
