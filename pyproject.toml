@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "leakcheck"
+name = "leakprobe"
 version = "0.1.0"
 description = "Find features that read data they were never supposed to see. Temporal leakage detection by metamorphic testing."
 readme = "README.md"
@@ -24,10 +24,11 @@ dependencies = ["pandas>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "numpy>=1.26"]
+examples = ["numpy>=1.26", "openpyxl>=3.1"]
 
 [project.urls]
-Homepage = "https://github.com/quantraunak/leakcheck"
-Issues = "https://github.com/quantraunak/leakcheck/issues"
+Homepage = "https://github.com/quantraunak/leakprobe"
+Issues = "https://github.com/quantraunak/leakprobe/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from leakcheck import advance, delay, use_column
+from leakprobe import advance, delay, use_column
 
 
 @pytest.fixture

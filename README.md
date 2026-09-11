@@ -1,4 +1,7 @@
-# leakcheck
+# leakprobe
+
+[![CI](https://github.com/quantraunak/leakprobe/actions/workflows/ci.yml/badge.svg)](https://github.com/quantraunak/leakprobe/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/leakprobe.svg)](https://pypi.org/project/leakprobe/) [![Python](https://img.shields.io/pypi/pyversions/leakprobe.svg)](https://pypi.org/project/leakprobe/)
+
 
 **Find features that read data they were never supposed to see.**
 
@@ -6,18 +9,18 @@ Temporal leakage is the most expensive quiet bug in applied ML. A feature reads
 something that wasn't knowable yet, nothing throws, no number looks implausible,
 and your model gets better. You find out in production, if you find out at all.
 
-`leakcheck` finds it without needing to know the right answer. It needs one
+`leakprobe` finds it without needing to know the right answer. It needs one
 thing you already know: **a change to your data that your features must be
 invariant to.**
 
 ```bash
-pip install leakcheck
+pip install leakprobe
 ```
 
 ```python
-import leakcheck as lc
+import leakprobe as lp
 
-report = lc.check(
+report = lp.check(
     compute=build_features,                  # (sources) -> DataFrame of features
     sources={"events": events, "tickets": tickets},
     timestamps={"events": "occurred_at", "tickets": "resolved_at"},
@@ -50,6 +53,39 @@ Declared, but did not respond to the source's clock:
 That last line is a real bug. `avg_severity` filters tickets on `opened_at`
 instead of `resolved_at`, so tickets that were still open at scoring time leak
 in — exactly the ones that predict churn. Nothing about the code looks wrong.
+
+## Try it on real data
+
+```bash
+pip install leakprobe openpyxl
+python examples/online_retail.py
+```
+
+The UCI Online Retail set: 397,924 real orders and 8,905 returns across 4,372
+customers of a UK gift retailer, 2010-2011. Six ordinary per-customer features
+built as of a cutoff, two of them wrong in the two ways temporal leakage
+actually happens. Neither raises. Both are caught:
+
+```
+feature               orders       returns
+total_spend         reads it     exactly 0
+order_count         reads it     exactly 0
+recency_days        reads it     exactly 0
+return_count       exactly 0      reads it
+avg_unit_price       bypass?     exactly 0
+net_spend           reads it          LEAK
+
+1 undeclared dependencies:
+  - net_spend moved when returns was perturbed, and does not declare it (max change 7.46e+03)
+
+Declared, but did not respond to the source's clock:
+  - avg_unit_price declares orders but did not move when its clock did
+```
+
+`avg_unit_price` is missing one cutoff filter, so it averages invoices that had
+not happened yet. `net_spend` reaches into the returns table without declaring
+it, silently inheriting that table's latency. One dropped subscript and one
+undeclared read -- the two shapes this bug takes in production.
 
 ## How it works
 
@@ -85,7 +121,7 @@ You don't have to write the `declared` map. Leave it out and every real timing
 dependency is reported:
 
 ```python
-report = lc.check(compute, sources, timestamps, declared={})
+report = lp.check(compute, sources, timestamps, declared={})
 for f in report.leaks:
     print(f.feature, "reads", f.source)
 ```
@@ -97,7 +133,7 @@ for code you inherited, which is usually a shorter list than the author believed
 
 ```python
 def test_no_temporal_leakage():
-    lc.check(build_features, SOURCES, TIMESTAMPS, DECLARED).raise_for_leaks()
+    lp.check(build_features, SOURCES, TIMESTAMPS, DECLARED).raise_for_leaks()
 ```
 
 The declaration map becomes the thing code review argues about, which is where
@@ -112,7 +148,7 @@ that argument belongs.
 | `use_column(frame, col, other)` | availability taken from another column. Models "treated as knowable when the period ended, not when it was published." |
 
 ```python
-report = lc.check(..., perturb=lc.advance, by=pd.Timedelta(days=90))
+report = lp.check(..., perturb=lp.advance, by=pd.Timedelta(days=90))
 ```
 
 ## What it will not catch
@@ -150,7 +186,7 @@ zero. That measurement is written up in
 ## Install
 
 ```bash
-pip install leakcheck          # pandas is the only dependency
+pip install leakprobe          # pandas is the only dependency
 ```
 
 Python 3.10+.

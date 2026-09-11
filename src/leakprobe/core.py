@@ -69,7 +69,7 @@ def check(
             unless your pipeline has genuine floating-point nondeterminism, and
             prefer to fix that instead.
         perturb: the perturbation. `delay` removes information and is the safe
-            default; see `leakcheck.perturb` for others.
+            default; see `leakprobe.perturb` for others.
 
     Returns:
         A Report. `report.leaks` is the list of undeclared dependencies, and

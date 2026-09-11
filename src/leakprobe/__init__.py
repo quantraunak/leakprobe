@@ -1,6 +1,6 @@
-"""leakcheck -- find features that read data they were never supposed to see.
+"""leakprobe -- find features that read data they were never supposed to see.
 
-    import leakcheck as lc
+    import leakprobe as lc
 
     report = lc.check(
         compute=build_features,

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import leakcheck as lc
+import leakprobe as lc
 
 
 @pytest.fixture

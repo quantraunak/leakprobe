@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import numpy as np
 import pandas as pd
 
-import leakcheck as lc
+import leakprobe as lc
 
 rng = np.random.default_rng(7)
 CUTOFF = pd.Timestamp("2024-06-01")
