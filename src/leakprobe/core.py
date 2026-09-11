@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 import pandas as pd
 
-from .perturb import delay
+from .perturb import delay, shuffle, truncate
 from .report import BYPASS, LEAK, OK, Finding, Report
 
 __all__ = ["check"]
@@ -51,6 +51,8 @@ def check(
     by: pd.Timedelta = pd.Timedelta(days=30),
     tolerance: float = 0.0,
     perturb: Callable[[pd.DataFrame, str, pd.Timedelta], pd.DataFrame] = delay,
+    probe_undeclared: bool = True,
+    cutoff: pd.Timestamp | None = None,
 ) -> Report:
     """Perturb each source's availability in turn; report features that moved.
 
@@ -70,6 +72,23 @@ def check(
             prefer to fix that instead.
         perturb: the perturbation. `delay` removes information and is the safe
             default; see `leakprobe.perturb` for others.
+        probe_undeclared: also test each source a feature claims not to read with
+            `shuffle`, which permutes that source's payload while leaving its
+            clock intact. `delay` alone cannot see a feature that reads an
+            undeclared source's *contents* while ignoring its timestamps -- an
+            outcome flag joined from a disposition table does not move when that
+            table's clock shifts. A feature that genuinely does not read a source
+            is invariant to arbitrary changes in it, so this costs no false
+            positives; it is only ever applied to undeclared pairs. Set False to
+            restore the clock-only behaviour.
+        cutoff: the as-of date your features are built for. When given, each
+            source is additionally truncated to rows at or before it, and any
+            feature that moves is reading rows it should never have seen. This
+            is the only probe that catches a statistic computed over all of time
+            -- a global mean, a z-score denominator -- because such a feature
+            responds to a delayed clock exactly as a correct one does. Features
+            whose index changes under truncation are compared on the rows
+            common to both.
 
     Returns:
         A Report. `report.leaks` is the list of undeclared dependencies, and
@@ -145,6 +164,94 @@ def check(
                 )
             )
 
+    if cutoff is not None:
+        _probe_cutoff(compute, sources, timestamps, baseline, features, tolerance,
+                      cutoff, findings, notes)
+
+    if probe_undeclared:
+        _probe_undeclared(
+            compute, sources, timestamps, declared, baseline, features, tolerance,
+            findings, notes,
+        )
+
     return Report(
         findings=findings, features=features, sources=list(sources), notes=notes
     )
+
+
+def _probe_undeclared(compute, sources, timestamps, declared, baseline, features,
+                      tolerance, findings, notes) -> None:
+    """Catch reads of an undeclared source that ignore that source's clock.
+
+    Shifting a timestamp only removes rows from code that filters on it. Code
+    that joins a table and takes a column off it never consults the clock at
+    all, so `delay` leaves it untouched and the dependency stays invisible.
+    Permuting the payload breaks it, and a feature that does not read the source
+    cannot notice.
+    """
+    already = {(f.feature, f.source) for f in findings if f.kind == LEAK}
+
+    for source in sources:
+        if timestamps[source] is None:
+            continue
+        untested = [f for f in features if source not in declared.get(f, ())
+                    and (f, source) not in already]
+        if not untested:
+            continue
+        moved_frame = _as_frame(
+            compute({**sources, source: shuffle(sources[source], timestamps[source])}),
+            "compute",
+        )
+        if list(moved_frame.columns) != list(baseline.columns):
+            notes.append(
+                f"note: shuffling {source!r} changed the feature set itself; its "
+                f"undeclared dependencies were not probed."
+            )
+            continue
+        for column, feature in zip(baseline.columns, features):
+            if feature not in untested:
+                continue
+            moved, worst = _changed(baseline[column], moved_frame[column], tolerance)
+            if moved:
+                findings.append(
+                    Finding(feature=feature, source=source, kind=LEAK, declared=False,
+                            moved=True, max_abs_change=worst)
+                )
+
+
+def _probe_cutoff(compute, sources, timestamps, baseline, features, tolerance,
+                  cutoff, findings, notes) -> None:
+    """Catch features built from rows that postdate the cutoff.
+
+    A feature computed as of `cutoff` cannot notice the deletion of rows after
+    it. Anything that moves was reading them. This is what `delay` cannot see:
+    shifting timestamps moves the visible slice for correct and incorrect code
+    alike, so a denominator averaged over all of time responds identically to a
+    properly filtered one.
+    """
+    for source in sources:
+        column = timestamps[source]
+        if column is None:
+            continue
+        cut = truncate(sources[source], column, cutoff)
+        if len(cut) == len(sources[source]):
+            continue
+        moved_frame = _as_frame(compute({**sources, source: cut}), "compute")
+        if list(moved_frame.columns) != list(baseline.columns):
+            notes.append(
+                f"note: truncating {source!r} at the cutoff changed the feature set "
+                f"itself, so future-row dependence on it was not tested."
+            )
+            continue
+        shared = baseline.index.intersection(moved_frame.index)
+        if not len(shared):
+            continue
+        for column_name, feature in zip(baseline.columns, features):
+            moved, worst = _changed(
+                baseline.loc[shared, column_name], moved_frame.loc[shared, column_name], tolerance
+            )
+            if moved:
+                findings.append(
+                    Finding(feature=feature, source=source, kind=LEAK, declared=False,
+                            moved=True, max_abs_change=worst)
+                )

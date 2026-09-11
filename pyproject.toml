@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "leakprobe"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find features that read data they were never supposed to see. Temporal leakage detection by metamorphic testing."
 readme = "README.md"
 requires-python = ">=3.10"

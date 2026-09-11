@@ -87,6 +87,45 @@ not happened yet. `net_spend` reaches into the returns table without declaring
 it, silently inheriting that table's latency. One dropped subscript and one
 undeclared read -- the two shapes this bug takes in production.
 
+## What it catches, measured
+
+Five public datasets, five shapes of leakage, and a correct pipeline for each.
+`benchmarks/leak_zoo.py` runs it.
+
+| shape | caught |
+|---|---|
+| S1 missing cutoff filter — aggregate over every row | 3/3 |
+| S2 undeclared source read | 2/2 |
+| S3 outcome leakage from a later-clocked table | 2/2 |
+| S4 outcome read under the event's own clock | 1/1 |
+| S5 statistic computed over all of time | 1/1 |
+| **correct pipelines flagged** | **0/5** |
+
+The last row matters most. A detector that flags clean code teaches you to
+ignore it.
+
+Three probes run, because no single perturbation sees everything:
+
+- **the clock moves** (`delay`) — catches code that filters on a timestamp
+- **an undeclared source's payload is permuted** (`shuffle`) — catches code that
+  joins a table and takes a column off it without ever consulting its clock.
+  Shifting that table's timestamps moves nothing, so `delay` is blind here.
+  Applied only to sources a feature says it does not read, so it costs no false
+  positives.
+- **rows after the cutoff are deleted** (`truncate`, when you pass `cutoff=`) —
+  catches a global mean or a z-score denominator taken over all of time. Those
+  respond to a delayed clock exactly as correct code does; only removing the
+  rows separates them.
+
+```python
+report = lp.check(..., cutoff=pd.Timestamp("2024-01-01"))
+```
+
+What is left: a feature that reads only a column *marginal* of an undeclared
+table — a mean, a max, a quantile — and never joins on a key or consults a
+timestamp. Permutation preserves marginals, so nothing moves. That boundary is
+asserted in the test suite so it cannot quietly change.
+
 ## How it works
 
 Four steps, and no ground truth anywhere in them.

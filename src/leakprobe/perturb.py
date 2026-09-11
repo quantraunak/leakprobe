@@ -8,6 +8,7 @@ moved.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 __all__ = ["delay", "advance", "use_column"]
@@ -61,4 +62,44 @@ def use_column(frame: pd.DataFrame, column: str, source: str) -> pd.DataFrame:
         raise KeyError(f"No column {source!r} to take availability from.")
     out = frame.copy()
     out[column] = out[source]
+    return out
+
+
+def truncate(frame: pd.DataFrame, column: str, cutoff: pd.Timestamp) -> pd.DataFrame:
+    """Rows after `cutoff` removed entirely, rather than made late.
+
+    Stronger than `delay` for the commonest bug. A feature built as of a cutoff
+    cannot notice the deletion of rows it was never allowed to see, so any
+    movement is proof it saw them. `delay` misses this whenever the offending
+    code ignores the clock rather than mis-filtering on it -- a global mean or a
+    z-score denominator computed over all of time responds to `delay` exactly as
+    a correct feature does, because the visible slice moved either way.
+
+    Changes the row count, so a feature frame indexed by entities present only
+    after the cutoff will change shape. That is reported rather than compared.
+    """
+    _check(frame, column)
+    return frame[frame[column] <= cutoff].reset_index(drop=True)
+
+
+def shuffle(frame: pd.DataFrame, column: str, seed: int = 0) -> pd.DataFrame:
+    """Timestamps kept, every other column independently permuted.
+
+    For testing a source a feature claims *not* to read. Such a feature must be
+    invariant to arbitrary changes in that source's contents, which makes this
+    the strongest admissible perturbation: it breaks every row-to-row
+    association while leaving the clock and the row count intact.
+
+    `delay` cannot do this job. A feature that reads an undeclared source's
+    payload while ignoring its clock -- joining a disposition table for an
+    outcome flag, say -- does not move when that table's timestamps shift, and
+    the dependency stays invisible. Only apply this to undeclared pairs: a
+    feature that legitimately reads a source will move, and should.
+    """
+    _check(frame, column)
+    generator = np.random.default_rng(seed)
+    out = frame.copy()
+    for name in out.columns:
+        if name != column:
+            out[name] = generator.permutation(out[name].to_numpy())
     return out
