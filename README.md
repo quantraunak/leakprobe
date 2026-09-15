@@ -3,11 +3,95 @@
 [![CI](https://github.com/quantraunak/leakprobe/actions/workflows/ci.yml/badge.svg)](https://github.com/quantraunak/leakprobe/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/leakprobe.svg)](https://pypi.org/project/leakprobe/) [![Python](https://img.shields.io/pypi/pyversions/leakprobe.svg)](https://pypi.org/project/leakprobe/)
 
 
-**Find features that read data they were never supposed to see.**
+**A detector for temporal leakage that needs no ground truth. On five public datasets with
+five planted leak shapes it catches 9 of 9 and flags 0 of 5 correct pipelines. The shipped
+version caught 6 of 9; the three misses had one cause and produced two new probes.**
 
-Temporal leakage is the most expensive quiet bug in applied ML. A feature reads
-something that wasn't knowable yet, nothing throws, no number looks implausible,
-and your model gets better. You find out in production, if you find out at all.
+## Objective
+
+Temporal leakage has no failure mode. A feature reads something that was not knowable yet,
+nothing raises, no number looks implausible, and your metrics improve. You cannot unit-test
+it, because the correct value is the thing in dispute — if you knew what the feature should
+have been, you would not have the bug.
+
+## Hypothesis
+
+You do not need the right answer. You need an invariant: **changing when a data source
+became available must change the features that read it, and must leave the features that do
+not read it bit-identical.** That is a metamorphic relation, the standard move for programs
+where no oracle exists ([Chen's oracle problem](https://dl.acm.org/doi/10.1145/3143561)),
+and leakage fits it exactly because look-ahead is by construction a dependency on time.
+
+## Result
+
+Five public datasets, five leak shapes, and a correct pipeline for each.
+
+| shape | caught |
+|---|---|
+| S1 missing cutoff filter | 3/3 |
+| S2 undeclared source read | 2/2 |
+| S3 outcome leakage from a later-clocked table | 2/2 |
+| S4 outcome read under the event's own clock | 1/1 |
+| S5 statistic computed over all of time | 1/1 |
+| **correct pipelines flagged** | **0/5** |
+
+The last row is the one that matters. A detector that flags clean code teaches you to
+ignore it.
+
+**The version on PyPI at 0.1.0 scored 6 of 9.** All three misses shared a cause: `delay`
+only removes rows from code that *filters* on a timestamp. Code that joins a table and
+takes a column off it never consults the clock, so shifting timestamps leaves it untouched.
+Chicago's arrest flag was invisible for exactly that reason — and the test suite already
+documented the gap as "the method's boundary rather than a miss."
+
+## Framework proposed
+
+**A perturbation detects a dependency only if it changes what the feature actually reads.**
+One perturbation is never enough, so three run:
+
+| probe | what it changes | what it catches |
+|---|---|---|
+| `delay` | timestamps move later | code that filters on a clock |
+| `shuffle` | an undeclared source's payload permuted, clock intact | code that joins a table and reads a column, never consulting its clock |
+| `truncate` | rows after your cutoff deleted | a global mean or z-score denominator taken over all of time |
+
+`shuffle` runs only on pairs the user declared independent, so it turns that declaration
+into something tested rather than assumed, and costs no false positives. `truncate` is the
+only probe that catches an all-of-time statistic, because those respond to a delayed clock
+exactly as correct code does.
+
+## Data
+
+| dataset | size | role |
+|---|---|---|
+| UCI Online Retail | 406,829 transactions with a customer | per-customer spend, returns |
+| NYC yellow taxi | 2.9M January 2024 trips | per-zone fares |
+| Chicago crime reports | 263,837 from 2023 | per-district arrest rates |
+| NYC 311 | 200,000 service requests | resolution times |
+| UCI bike sharing | 17,379 hours | hour-of-day aggregates |
+
+All public, no authentication. `benchmarks/leak_zoo.py` runs the whole thing.
+
+## Limitations
+
+Column-wise permutation preserves a column's marginal distribution — a mean is a mean after
+shuffling, and so is a max or a quantile. A feature that reads only such an aggregate of an
+undeclared table, never joining on a key and never consulting a timestamp, survives every
+probe. That boundary is asserted in the test suite so it cannot quietly change. `truncate`
+requires you to pass your cutoff; without it the all-of-time statistic is genuinely
+undetectable.
+
+## Value
+
+Point it at a feature pipeline, declare what each feature is supposed to read, and it tells
+you what moved that shouldn't have. It found `turnover_1m` in a 22-factor study — a
+price-and-volume factor that divides by shares outstanding, so it silently inherited the
+filing calendar, in a design whose whole point was that the price block could not. That bug
+was worth 59% of mean IC and four spurious t-statistics.
+
+[Full write-up](https://raunaksood.vercel.app/writing/testing-for-leakage).
+
+## Detail
 
 `leakprobe` finds it without needing to know the right answer. It needs one
 thing you already know: **a change to your data that your features must be
