@@ -81,6 +81,15 @@ probe. That boundary is asserted in the test suite so it cannot quietly change. 
 requires you to pass your cutoff; without it the all-of-time statistic is genuinely
 undetectable.
 
+## Reproduce
+
+```bash
+pip install leakprobe
+python -m pytest              # 18 tests
+python examples/online_retail.py   # real data, two planted bugs, both caught
+python benchmarks/leak_zoo.py      # the full 9/9 table above
+```
+
 ## Value
 
 Point it at a feature pipeline, declare what each feature is supposed to read, and it tells
