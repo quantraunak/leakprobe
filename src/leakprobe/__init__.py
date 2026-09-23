@@ -17,4 +17,4 @@ from .report import Finding, Report
 
 __all__ = ["check", "delay", "advance", "truncate", "shuffle", "use_column",
            "Report", "Finding"]
-__version__ = "0.2.0"
+__version__ = "0.2.1"

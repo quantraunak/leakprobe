@@ -10,3 +10,4 @@ build/
 
 # example data cache (48 MB, downloaded on first run)
 examples/online_retail.csv
+benchmarks/data/

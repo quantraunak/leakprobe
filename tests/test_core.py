@@ -265,4 +265,61 @@ def test_cutoff_probe_catches_a_statistic_over_all_of_time():
                   declared={"mean_amount": ["events"]})
     assert lc.check(correct, cutoff=cutoff, **shared).clean
     assert lc.check(leaky, **shared).clean, "without a cutoff this is genuinely undetectable"
-    assert [f.feature for f in lc.check(leaky, cutoff=cutoff, **shared).leaks] == ["mean_amount"]
+    report = lc.check(leaky, cutoff=cutoff, **shared)
+    assert [f.feature for f in report.future] == ["mean_amount"]
+    assert report.leaks == []
+
+
+def test_declared_feature_missing_from_output_raises():
+    """A typo in `declared` must not pass as clean.
+
+    Found while auditing the first-run experience before distribution: declaring
+    a feature compute() never returns produced report.clean == True. A user who
+    misspells a feature name would believe it covered. Sources were already
+    validated; features were not.
+    """
+    events = pd.DataFrame({
+        "id": [1, 1, 2],
+        "occurred_at": pd.to_datetime(["2024-01-01", "2024-05-01", "2024-02-01"]),
+        "amount": [10.0, 20.0, 30.0],
+    })
+
+    def build_it(src):
+        return pd.DataFrame({"total": src["events"].groupby("id").amount.sum()})
+
+    with pytest.raises(KeyError, match="ghost"):
+        lc.check(
+            build_it, {"events": events}, timestamps={"events": "occurred_at"},
+            declared={"total": ["events"], "ghost": ["events"]},
+        )
+
+
+def test_declared_feature_reading_past_cutoff_is_reported_as_future_not_leak():
+    """A declared source read past the cutoff is its own kind of defect.
+
+    Found in the shipped demo: the cutoff probe tagged every finding as an
+    undeclared dependency, so a feature that honestly declared its source and
+    still read the future was described as 'does not declare it' in one line and
+    'declares it' in the next. The report contradicted itself on first run.
+    """
+    cutoff = pd.Timestamp("2024-03-01")
+    events = pd.DataFrame({
+        "id": [1, 1, 2],
+        "occurred_at": pd.to_datetime(["2024-01-01", "2024-05-01", "2024-02-01"]),
+        "amount": [10.0, 20.0, 30.0],
+    })
+
+    def build_it(src):
+        e = src["events"]
+        return pd.DataFrame({"count_all": e.groupby("id").size().astype(float)})
+
+    report = lc.check(
+        build_it, {"events": events}, timestamps={"events": "occurred_at"},
+        declared={"count_all": ["events"]}, cutoff=cutoff,
+    )
+    assert [f.feature for f in report.future] == ["count_all"]
+    assert report.leaks == [], "a declared source is not an undeclared dependency"
+    assert report.future[0].declared is True
+    assert "declares events" in str(report.future[0])
+    with pytest.raises(AssertionError):
+        report.raise_for_leaks()

@@ -19,4 +19,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: pytest -q
+      - run: python -m leakprobe.demo
       - run: python examples/churn_features.py

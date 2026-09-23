@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import leakprobe as lp
 
-DATA = Path("/tmp/lpdata")
+DATA = Path(__file__).resolve().parent / "data"   # populated by fetch_data.py
 CUTOFF = {}
 
 
@@ -333,8 +333,14 @@ def main() -> None:
     rows = []
     for case in cases():
         try:
+            # One declaration map per dataset; each pipeline returns a subset of
+            # its features. leakprobe refuses a declaration for a feature the
+            # pipeline never produced (a misspelling would otherwise pass as
+            # clean), so restrict the map to what this build actually returns.
+            produced = set(case.build(case.sources).columns)
+            declared = {k: v for k, v in case.declared.items() if k in produced}
             report = lp.check(compute=case.build, sources=case.sources,
-                              timestamps=case.timestamps, declared=case.declared,
+                              timestamps=case.timestamps, declared=declared,
                               by=pd.Timedelta(days=21), cutoff=CUTOFF[case.dataset])
         except Exception as exc:
             rows.append({"dataset": case.dataset, "case": case.name, "shape": case.shape or "-",
@@ -342,8 +348,9 @@ def main() -> None:
             continue
 
         leaked = {f.feature for f in report.leaks}
+        future = {f.feature for f in report.future}   # declared, read past the cutoff
         bypass = {f.feature for f in report.bypassed}
-        flagged = leaked | bypass
+        flagged = leaked | future | bypass
         if case.shape is None:
             verdict = "clean" if not flagged else "FALSE POSITIVE"
         else:

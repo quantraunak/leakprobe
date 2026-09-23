@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 import pandas as pd
 
 from .perturb import delay, shuffle, truncate
-from .report import BYPASS, LEAK, OK, Finding, Report
+from .report import BYPASS, FUTURE, LEAK, OK, Finding, Report
 
 __all__ = ["check"]
 
@@ -124,6 +124,15 @@ def check(
         )
 
     features = [str(c) for c in baseline.columns]
+    # A declared feature that compute() never produced is almost always a typo,
+    # and silently ignoring it means a misspelled name passes as clean. In a tool
+    # whose whole purpose is catching silent failures, that cannot be allowed.
+    phantom = sorted(set(declared) - set(features))
+    if phantom:
+        raise KeyError(
+            f"declared names feature(s) compute() did not return: {phantom}. "
+            f"Features returned: {features}"
+        )
     findings: list[Finding] = []
 
     for source in sources:
@@ -165,8 +174,8 @@ def check(
             )
 
     if cutoff is not None:
-        _probe_cutoff(compute, sources, timestamps, baseline, features, tolerance,
-                      cutoff, findings, notes)
+        _probe_cutoff(compute, sources, timestamps, declared, baseline, features,
+                      tolerance, cutoff, findings, notes)
 
     if probe_undeclared:
         _probe_undeclared(
@@ -219,8 +228,8 @@ def _probe_undeclared(compute, sources, timestamps, declared, baseline, features
                 )
 
 
-def _probe_cutoff(compute, sources, timestamps, baseline, features, tolerance,
-                  cutoff, findings, notes) -> None:
+def _probe_cutoff(compute, sources, timestamps, declared, baseline, features,
+                  tolerance, cutoff, findings, notes) -> None:
     """Catch features built from rows that postdate the cutoff.
 
     A feature computed as of `cutoff` cannot notice the deletion of rows after
@@ -251,7 +260,9 @@ def _probe_cutoff(compute, sources, timestamps, baseline, features, tolerance,
                 baseline.loc[shared, column_name], moved_frame.loc[shared, column_name], tolerance
             )
             if moved:
+                is_declared = source in declared.get(feature, ())
                 findings.append(
-                    Finding(feature=feature, source=source, kind=LEAK, declared=False,
+                    Finding(feature=feature, source=source,
+                            kind=FUTURE if is_declared else LEAK, declared=is_declared,
                             moved=True, max_abs_change=worst)
                 )

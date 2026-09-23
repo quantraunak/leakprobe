@@ -77,7 +77,7 @@ All public, no authentication. `benchmarks/leak_zoo.py` runs the whole thing.
 Column-wise permutation preserves a column's marginal distribution — a mean is a mean after
 shuffling, and so is a max or a quantile. A feature that reads only such an aggregate of an
 undeclared table, never joining on a key and never consulting a timestamp, survives every
-probe. That boundary is asserted in the test suite so it cannot quietly change. `truncate`
+probe. That boundary is asserted in the test suite so it cannot change unnoticed. `truncate`
 requires you to pass your cutoff; without it the all-of-time statistic is genuinely
 undetectable.
 
@@ -85,8 +85,15 @@ undetectable.
 
 ```bash
 pip install leakprobe
-python -m pytest              # 18 tests
+python -m leakprobe.demo           # two seconds, no downloads: one planted leak, caught
+```
+
+Then, from a clone of this repository:
+
+```bash
+python -m pytest                   # 19 tests
 python examples/online_retail.py   # real data, two planted bugs, both caught
+python benchmarks/fetch_data.py    # ~300 MB of public data, cached
 python benchmarks/leak_zoo.py      # the full 9/9 table above
 ```
 
@@ -217,7 +224,7 @@ report = lp.check(..., cutoff=pd.Timestamp("2024-01-01"))
 What is left: a feature that reads only a column *marginal* of an undeclared
 table — a mean, a max, a quantile — and never joins on a key or consults a
 timestamp. Permutation preserves marginals, so nothing moves. That boundary is
-asserted in the test suite so it cannot quietly change.
+asserted in the test suite so it cannot change unnoticed.
 
 ## How it works
 
@@ -234,11 +241,14 @@ Four steps, and no ground truth anywhere in them.
 4. **Check what moved against what you declared.** Anything in one list and not
    the other is the finding.
 
-Two kinds of finding:
+Three kinds of finding:
 
 - **`leak`** — moved, but doesn't declare the source. It has a dependency you
   didn't know about. In a temporal pipeline, an unknown dependency on *when*
   data arrived is look-ahead.
+- **`future`** — declares the source, and changed when rows after your cutoff
+  were deleted. It reads what it should not have seen. Only reported when you
+  pass `cutoff=`. `raise_for_leaks()` fails on these too.
 - **`bypass?`** — declares the source but didn't move when that source's clock
   did. It's reaching the data by a path that ignores availability, which is how
   look-ahead usually gets in. Not a failure on its own. Worth reading.
