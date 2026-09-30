@@ -3,9 +3,10 @@
 A factor called `turnover_1m` broke a backtest of mine, and it took months to
 notice because nothing about it looked wrong.
 
-Turnover is a price-and-volume factor. Monthly volume over shares outstanding.
-Everyone treats it as price-only, since volume comes off the tape and the tape
-is available the instant it prints, so there is nothing to date carefully. I had
+Turnover is monthly volume over shares outstanding. Everyone files it with the
+market-data factors, the ones built from prices and volume rather than from
+filings, because volume comes off the tape and the tape is available the
+instant it prints. Nothing to date carefully. I had
 twenty-two factors split into two blocks, eleven that read a filed figure and
 eleven that did not, and the split was load-bearing. The whole design depended on
 the second block being unable to respond to the filing calendar.
