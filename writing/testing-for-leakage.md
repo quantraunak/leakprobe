@@ -13,6 +13,10 @@ the second block being unable to respond to the filing calendar.
 
 Shares outstanding comes from a 10-Q.
 
+Vendors ship it in the daily price file next to close and volume, because you
+need it for market cap, which is how it passes as market data. But the number
+only changes when the company reports it, four times a year, on filing dates.
+
 So `turnover_1m` sat in the price-only block, inheriting the filing calendar
 through its denominator. Nothing raised. No number looked implausible. The factor
 behaved, the backtest behaved, and the only symptom was that results came out
