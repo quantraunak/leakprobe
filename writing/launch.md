@@ -8,9 +8,9 @@ Swap the site link for raunaksood.com if the domain is live by then.
 
 ## Hacker News
 
-Title (80 char limit; this is 76):
+Title (80 char limit; this is 78):
 
-    Show HN: Leakprobe – test ML features for temporal leakage, no ground truth needed
+    Show HN: Leakprobe – test ML features for temporal leakage without ground truth
 
 URL: https://github.com/quantraunak/leakprobe
 
