@@ -323,3 +323,54 @@ def test_declared_feature_reading_past_cutoff_is_reported_as_future_not_leak():
     assert "declares events" in str(report.future[0])
     with pytest.raises(AssertionError):
         report.raise_for_leaks()
+
+
+def test_discover_returns_the_measured_map_with_every_feature_present():
+    cutoff = pd.Timestamp("2024-03-01")
+    events = pd.DataFrame({
+        "id": [1, 1, 1, 2, 2, 3, 3, 4],
+        "t": pd.to_datetime(["2024-01-05", "2024-02-10", "2024-02-20", "2024-01-15",
+                             "2024-02-25", "2024-01-20", "2024-02-28", "2024-02-01"]),
+        "amount": [10.0, 20.0, 5.0, 7.0, 9.0, 3.0, 11.0, 4.0],
+    })
+    profiles = pd.DataFrame({
+        "id": [1, 2, 3, 4],
+        "u": pd.to_datetime(["2023-12-01", "2024-01-02", "2024-02-03", "2024-02-15"]),
+        "region": [3.0, 4.0, 5.0, 6.0],
+    })
+
+    def build(src):
+        e = src["events"]; e = e[e["t"] <= cutoff]
+        p = src["profiles"]; p = p[p["u"] <= cutoff].set_index("id")
+        out = pd.DataFrame({"spend": e.groupby("id").amount.sum()})
+        out["region"] = p["region"].reindex(out.index)
+        out["const"] = 1.0
+        return out
+
+    found = lc.discover(build, {"events": events, "profiles": profiles},
+                        timestamps={"events": "t", "profiles": "u"})
+    assert found == {"spend": ["events"], "region": ["profiles"], "const": []}
+    # the measured map, used as the declaration, is clean by construction
+    assert lc.check(build, {"events": events, "profiles": profiles},
+                    timestamps={"events": "t", "profiles": "u"}, declared=found).clean
+
+
+def test_delay_that_removes_entities_from_the_output_does_not_crash():
+    """Found by discover(): delaying a source dropped every event for one entity,
+    the output lost a row, and comparing differently-indexed Series raised a
+    pandas ValueError. Now compared on the shared rows, with a note."""
+    cutoff = pd.Timestamp("2024-03-01")
+    events = pd.DataFrame({
+        "id": [1, 1, 2],
+        "t": pd.to_datetime(["2024-01-05", "2024-02-10", "2024-02-25"]),
+        "amount": [10.0, 20.0, 7.0],
+    })
+
+    def build(src):
+        e = src["events"]; e = e[e["t"] <= cutoff]
+        return pd.DataFrame({"spend": e.groupby("id").amount.sum(), "const": 1.0})
+
+    report = lc.check(build, {"events": events}, timestamps={"events": "t"},
+                      declared={"spend": ["events"], "const": []})
+    assert report.clean
+    assert any("changed which rows" in n for n in report.notes)

@@ -14,7 +14,7 @@ import pandas as pd
 from .perturb import delay, shuffle, truncate
 from .report import BYPASS, FUTURE, LEAK, OK, Finding, Report
 
-__all__ = ["check"]
+__all__ = ["check", "discover"]
 
 Sources = Mapping[str, pd.DataFrame]
 Compute = Callable[[Sources], pd.DataFrame]
@@ -29,7 +29,18 @@ def _as_frame(result: object, label: str) -> pd.DataFrame:
 
 
 def _changed(left: pd.Series, right: pd.Series, tolerance: float) -> tuple[bool, float]:
-    """Did this column move? NaN in the same place counts as unchanged."""
+    """Did this column move? NaN in the same place counts as unchanged.
+
+    Compared on the rows both sides have. A perturbation that removes rows from
+    a source can remove entities from the output, and that is a property of
+    the whole table rather than of any one column, so it is reported once as a
+    note by the caller instead of as a finding on every feature.
+    """
+    shared = left.index.intersection(right.index)
+    if len(shared) != len(left) or len(shared) != len(right):
+        left, right = left.loc[shared], right.loc[shared]
+    if not len(shared):
+        return True, float("inf")
     both_null = left.isna() & right.isna()
     if (left.isna() != right.isna()).any():
         return True, float("inf")
@@ -152,6 +163,15 @@ def check(
                 f"a stronger dependency than this test is designed to describe."
             )
             continue
+        if not moved_frame.index.equals(baseline.index):
+            shared = baseline.index.intersection(moved_frame.index)
+            notes.append(
+                f"note: perturbing {source!r} changed which rows the pipeline returns "
+                f"({len(baseline)} -> {len(moved_frame)}); features are compared on the "
+                f"{len(shared)} rows present in both."
+            )
+            if not len(shared):
+                continue
 
         for column, feature in zip(baseline.columns, features):
             moved, worst = _changed(baseline[column], moved_frame[column], tolerance)
@@ -266,3 +286,30 @@ def _probe_cutoff(compute, sources, timestamps, declared, baseline, features,
                             kind=FUTURE if is_declared else LEAK, declared=is_declared,
                             moved=True, max_abs_change=worst)
                 )
+
+
+def discover(
+    compute: Compute,
+    sources: Sources,
+    timestamps: Mapping[str, str],
+    *,
+    by: pd.Timedelta = pd.Timedelta(days=30),
+    tolerance: float = 0.0,
+) -> dict[str, list[str]]:
+    """Measure the dependency map instead of writing it.
+
+    Runs `check` with nothing declared, so every source is probed against every
+    feature, and returns {feature: [sources it responded to]}. Paste the result
+    in as `declared`, delete the pairs that should not be there, and those
+    deletions are your leak report. Features that responded to nothing get an
+    empty list so the map is complete.
+
+        >>> print(lp.discover(build, SOURCES, TIMESTAMPS))
+        {'spend_to_date': ['events'], 'region': []}
+    """
+    report = check(compute, sources, timestamps, declared={}, by=by,
+                   tolerance=tolerance, probe_undeclared=True)
+    found: dict[str, set[str]] = {f: set() for f in report.features}
+    for finding in report.leaks:
+        found[finding.feature].add(finding.source)
+    return {f: sorted(found[f]) for f in report.features}

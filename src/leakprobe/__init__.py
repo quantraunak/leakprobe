@@ -11,10 +11,10 @@
     report.raise_for_leaks()
 """
 
-from .core import check
+from .core import check, discover
 from .perturb import advance, delay, shuffle, truncate, use_column
 from .report import Finding, Report
 
-__all__ = ["check", "delay", "advance", "truncate", "shuffle", "use_column",
+__all__ = ["check", "discover", "delay", "advance", "truncate", "shuffle", "use_column",
            "Report", "Finding"]
-__version__ = "0.2.1"
+__version__ = "0.2.2"

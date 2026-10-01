@@ -221,7 +221,11 @@ Three probes run, because no single perturbation sees everything:
 report = lp.check(..., cutoff=pd.Timestamp("2024-01-01"))
 ```
 
-What is left: a feature that reads only a column *marginal* of an undeclared
+Out of scope by design: leakage that is not about time. A scaler or target encoder
+fit on the full set before the split leaks across *rows*, and no clock perturbation
+sees it. Use a split-aware test for that.
+
+What is left on the temporal side: a feature that reads only a column *marginal* of an undeclared
 table — a mean, a max, a quantile — and never joins on a key or consults a
 timestamp. Permutation preserves marginals, so nothing moves. That boundary is
 asserted in the test suite so it cannot change unnoticed.
@@ -259,17 +263,18 @@ result below it noise, so that's a hard error rather than a warning.
 
 ## Declaring nothing
 
-You don't have to write the `declared` map. Leave it out and every real timing
-dependency is reported:
+You don't have to write the `declared` map by hand. Measure it:
 
 ```python
-report = lp.check(compute, sources, timestamps, declared={})
-for f in report.leaks:
-    print(f.feature, "reads", f.source)
+print(lp.discover(compute, sources, timestamps))
+# {'spend_to_date': ['events'], 'avg_unit_price': ['orders', 'prices'], 'region': []}
 ```
 
-That's the fastest way to answer "what does this pipeline actually depend on"
-for code you inherited, which is usually a shorter list than the author believed.
+Paste that in as `declared`, delete the pairs that should not be there, and the
+next `check` reports exactly those. The human step is review-and-confirm, not
+writing a dependency matrix from scratch. It is also the fastest way to answer
+"what does this pipeline actually depend on" for code you inherited, which is
+usually a shorter list than the author believed.
 
 ## In CI
 
