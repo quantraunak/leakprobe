@@ -91,7 +91,7 @@ python -m leakprobe.demo           # two seconds, no downloads: one planted leak
 Then, from a clone of this repository:
 
 ```bash
-python -m pytest                   # 19 tests
+python -m pytest                   # 30 tests
 python examples/online_retail.py   # real data, two planted bugs, both caught
 python benchmarks/fetch_data.py    # ~300 MB of public data, cached
 python benchmarks/leak_zoo.py      # the full 9/9 table above
@@ -285,6 +285,27 @@ def test_no_temporal_leakage():
 
 The declaration map becomes the thing code review argues about, which is where
 that argument belongs.
+
+### Reading the result programmatically
+
+`raise_for_leaks()` either passes or throws. When you want the whole picture in
+a log, a dashboard, or a CSV instead of a thrown exception, every finding and
+the report itself export as plain dicts:
+
+```python
+report = lp.check(compute, sources, timestamps, declared)
+
+report.to_dict()          # the whole report, JSON-serialisable
+report.to_json()          # ...as JSON, for a CI log or an alert payload
+report.as_frame().to_csv("leaks.csv")   # one row per feature/source pair
+report.leaks[0].to_dict() # a single finding: feature, source, kind, max_abs_change, ...
+```
+
+`as_frame()` returns findings as a tidy `DataFrame` (columns `feature`, `source`,
+`kind`, `declared`, `moved`, `max_abs_change`), so you can pivot a large report
+or diff one run against the next. A clean report is not an empty frame — it
+still describes every pair it checked; filter on `kind` if you only want the
+problems.
 
 ## Perturbations
 

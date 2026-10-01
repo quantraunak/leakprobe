@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
+
+import pandas as pd
 
 __all__ = ["Finding", "Report"]
 
@@ -42,6 +45,10 @@ class Finding:
                 f"declaration is stale"
             )
         return f"{self.feature} / {self.source}: as declared"
+
+    def to_dict(self) -> dict:
+        """The finding as a plain dict, for logging or handing to a dashboard."""
+        return asdict(self)
 
 
 @dataclass
@@ -132,3 +139,32 @@ class Report:
             lines.append("")
             lines += self.notes
         return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """The whole report as a plain dict, JSON-serialisable."""
+        return {
+            "features": list(self.features),
+            "sources": list(self.sources),
+            "notes": list(self.notes),
+            "findings": [f.to_dict() for f in self.findings],
+            "leaks": [f.to_dict() for f in self.leaks],
+            "future": [f.to_dict() for f in self.future],
+            "bypassed": [f.to_dict() for f in self.bypassed],
+            "clean": self.clean,
+        }
+
+    def to_json(self, *, indent: int | None = 2) -> str:
+        """The report as JSON, for a CI log or an alert payload."""
+        return json.dumps(self.to_dict(), indent=indent)
+
+    def as_frame(self) -> pd.DataFrame:
+        """Findings as a tidy DataFrame (one row per feature/source pair).
+
+        Handy for pivoting a large report or for emitting a CSV. Columns:
+        feature, source, kind, declared, moved, max_abs_change. Finding order
+        and column order are stable.
+        """
+        return pd.DataFrame(
+            [f.to_dict() for f in self.findings],
+            columns=["feature", "source", "kind", "declared", "moved", "max_abs_change"],
+        )

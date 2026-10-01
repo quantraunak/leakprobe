@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-__all__ = ["delay", "advance", "use_column"]
+__all__ = ["advance", "delay", "shuffle", "truncate", "use_column"]
 
 
 def _check(frame: pd.DataFrame, column: str) -> None:
@@ -33,6 +33,12 @@ def delay(frame: pd.DataFrame, column: str, by: pd.Timedelta) -> pd.DataFrame:
     feature that legitimately reads it will change and one that does not cannot.
     """
     _check(frame, column)
+    if by <= pd.Timedelta(0):
+        raise ValueError(
+            f"delay needs a positive `by` (got {by}); a non-positive delta either "
+            "does nothing or moves availability earlier, silently turning the "
+            "delay into an advance. Use `advance` if that is what you mean."
+        )
     out = frame.copy()
     out[column] = out[column] + by
     return out
