@@ -15,6 +15,15 @@ from .core import check, discover
 from .perturb import advance, delay, shuffle, truncate, use_column
 from .report import Finding, Report
 
-__all__ = ["check", "discover", "delay", "advance", "truncate", "shuffle", "use_column",
-           "Report", "Finding"]
-__version__ = "0.2.2"
+__all__ = [
+    "Finding",
+    "Report",
+    "advance",
+    "check",
+    "delay",
+    "discover",
+    "shuffle",
+    "truncate",
+    "use_column",
+]
+__version__ = "0.2.3"
