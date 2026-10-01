@@ -13,9 +13,10 @@ the second block being unable to respond to the filing calendar.
 
 Shares outstanding comes from a 10-Q.
 
-Vendors ship it in the daily price file next to close and volume, because you
-need it for market cap, which is how it passes as market data. But the number
-only changes when the company reports it, four times a year, on filing dates.
+In vendor data it ships in the price file next to close and volume, which is
+where the habit of calling it market data comes from. In my pipeline it came
+out of the filings, in the same table as book value and earnings, and I never
+checked, because the function lived in `price.py`.
 
 So `turnover_1m` sat in the price-only block, inheriting the filing calendar
 through its denominator. Nothing raised. No number looked implausible. The factor
