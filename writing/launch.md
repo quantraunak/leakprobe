@@ -37,6 +37,9 @@ First comment, post it yourself right after submitting:
     on the 5 correct pipelines. The first version caught 6/9; the misses all had
     one cause, and the write-up covers what the tool still cannot see.
 
+    You don't have to write the dependency map by hand: lp.discover() runs the
+    probes with nothing declared and hands you the map to prune.
+
     pip install leakprobe. Write-up:
     https://raunaksood.vercel.app/writing/testing-for-leakage
 
