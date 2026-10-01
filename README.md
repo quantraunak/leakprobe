@@ -4,8 +4,8 @@
 
 
 **A detector for temporal leakage that needs no ground truth. On five public datasets with
-five planted leak shapes it catches 9 of 9 and flags 0 of 5 correct pipelines. The shipped
-version caught 6 of 9; the three misses had one cause and produced two new probes.**
+five planted leak shapes it catches 9 of 9 and flags 0 of 5 correct pipelines. The first
+release caught 6 of 9; the three misses had one cause and produced two new probes.**
 
 ## Objective
 
@@ -38,7 +38,7 @@ Five public datasets, five leak shapes, and a correct pipeline for each.
 The last row is the one that matters. A detector that flags clean code teaches you to
 ignore it.
 
-**The version on PyPI at 0.1.0 scored 6 of 9.** All three misses shared a cause: `delay`
+**The first release, 0.1.0, scored 6 of 9.** All three misses shared a cause: `delay`
 only removes rows from code that *filters* on a timestamp. Code that joins a table and
 takes a column off it never consults the clock, so shifting timestamps leaves it untouched.
 Chicago's arrest flag was invisible for exactly that reason — and the test suite already
