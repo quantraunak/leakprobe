@@ -4,8 +4,9 @@
 
 
 **A detector for temporal leakage that needs no ground truth. On five public datasets with
-five planted leak shapes it catches 9 of 9 and flags 0 of 5 correct pipelines. The first
-release caught 6 of 9; the three misses had one cause and produced two new probes.**
+five planted leak shapes it catches 8 of 9 and flags 0 of 5 correct pipelines. The first
+release caught 6 of 9; the three misses had one cause and produced two new probes. The
+remaining miss is the method's boundary, kept in the benchmark on purpose.**
 
 ## Objective
 
@@ -31,12 +32,25 @@ Five public datasets, five leak shapes, and a correct pipeline for each.
 | S1 missing cutoff filter | 3/3 |
 | S2 undeclared source read | 2/2 |
 | S3 outcome leakage from a later-clocked table | 2/2 |
-| S4 outcome read under the event's own clock | 1/1 |
+| S4 outcome stored in the event's own row, under its clock | **0/1** |
 | S5 statistic computed over all of time | 1/1 |
 | **correct pipelines flagged** | **0/5** |
 
 The last row is the one that matters. A detector that flags clean code teaches you to
 ignore it.
+
+**S4 is a miss by construction, and the benchmark keeps it.** Chicago's crime file ships
+the arrest flag in the same row as the report, stamped with the report's date, even though
+the arrest was decided later. A feature that reads that column declares the right table,
+filters on the right clock, and leaks anyway. Nothing about availability was violated,
+because the data model already erased the fact that the outcome came later. No
+perturbation of *when* a table became knowable can see a leak that lives in *what* the
+table claims to know. Earlier versions of this benchmark scored S4 as caught; that case
+was S3 with fewer columns, and has been replaced with the real one.
+
+A catch here means `raise_for_leaks()` would fail: a `leak` or a `future` finding. A
+`bypass?` warning on its own is not counted, and the benchmark prints it in a separate
+column so it cannot inflate the score. On this benchmark no case is bypass-only.
 
 **The first release, 0.1.0, scored 6 of 9.** All three misses shared a cause: `delay`
 only removes rows from code that *filters* on a timestamp. Code that joins a table and
@@ -91,10 +105,10 @@ python -m leakprobe.demo           # two seconds, no downloads: one planted leak
 Then, from a clone of this repository:
 
 ```bash
-python -m pytest                   # 19 tests
+python -m pytest                   # 23 tests
 python examples/online_retail.py   # real data, two planted bugs, both caught
 python benchmarks/fetch_data.py    # ~300 MB of public data, cached
-python benchmarks/leak_zoo.py      # the full 9/9 table above
+python benchmarks/leak_zoo.py      # the full 8/9 table above
 ```
 
 ## Value
@@ -197,12 +211,14 @@ Five public datasets, five shapes of leakage, and a correct pipeline for each.
 | S1 missing cutoff filter — aggregate over every row | 3/3 |
 | S2 undeclared source read | 2/2 |
 | S3 outcome leakage from a later-clocked table | 2/2 |
-| S4 outcome read under the event's own clock | 1/1 |
+| S4 outcome stored in the event's own row, under its clock | 0/1 |
 | S5 statistic computed over all of time | 1/1 |
 | **correct pipelines flagged** | **0/5** |
 
 The last row matters most. A detector that flags clean code teaches you to
-ignore it.
+ignore it. S4 is the boundary: when the data model stores a later outcome in
+the event's own row under the event's own clock, no availability perturbation
+can tell it from a legitimate column. See "Result" above.
 
 Three probes run, because no single perturbation sees everything:
 
@@ -283,6 +299,15 @@ def test_no_temporal_leakage():
     lp.check(build_features, SOURCES, TIMESTAMPS, DECLARED).raise_for_leaks()
 ```
 
+`raise_for_leaks()` fails on `leak` and `future` findings. A `bypass?` warning
+prints but does not fail, because a stale declaration produces the same signal
+as a real missing filter. Once the declaration map has been reviewed, make it
+fail too:
+
+```python
+    lp.check(...).raise_for_leaks(strict=True)
+```
+
 The declaration map becomes the thing code review argues about, which is where
 that argument belongs.
 
@@ -317,7 +342,14 @@ dataset, a scaler fit before the split. Different bug, different tool.
 ## Where this came from
 
 The technique is metamorphic testing, which software testing has used for
-decades and research code almost never does. This is an extraction of a check
+decades and research code almost never does. Xie et al. (2011, *Journal of
+Systems and Software*) applied metamorphic relations to machine-learning
+classifiers, where the oracle problem is the same one this tool faces. Yang et
+al. (ASE 2022, "Data leakage in notebooks: static detection and better
+processes") find leakage by static analysis of the code; this tool finds it by
+perturbing the data and watching the code, so it is blind to what Yang et al.
+see in a notebook's structure and sees what they cannot, a dependency that only
+exists at run time. This is an extraction of a check
 built for a quantitative finance pipeline, where the sources are stock prices
 and regulatory filings and the question is whether a factor read an earnings
 figure before it was published.

@@ -1,9 +1,16 @@
-"""Ways to move when a source becomes knowable.
+"""Ways to change a source so that a feature's response to it is informative.
 
-A perturbation changes *availability*, never values. That distinction is what
-makes the test sound: if a feature's number changes after a perturbation, the
-feature read something whose timing moved, and timing is the only thing that
-moved.
+Three of these move *availability* and leave values alone: `delay`, `advance`
+and `use_column` rewrite the timestamp column and nothing else, so a feature
+that changes under them read something whose timing moved, and timing is the
+only thing that moved.
+
+Two change the contents. `truncate` deletes the rows after a cutoff, so a
+feature built as of that cutoff cannot notice unless it read rows it should
+never have seen. `shuffle` keeps every timestamp and permutes every other
+column, so a feature that claims not to read the source cannot notice at all.
+Each is sound for the question it is applied to -- the declared-as-of case and
+the declared-independent case -- and `check` only applies them there.
 """
 
 from __future__ import annotations
@@ -11,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-__all__ = ["delay", "advance", "use_column"]
+__all__ = ["delay", "advance", "use_column", "truncate", "shuffle"]
 
 
 def _check(frame: pd.DataFrame, column: str) -> None:

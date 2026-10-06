@@ -123,6 +123,20 @@ def test_declared_but_clock_insensitive_is_reported_separately(sources):
     assert report.clean, "a stale declaration is not a leak"
 
 
+def test_strict_gate_fails_on_bypass(sources):
+    """bypass? is advisory by default and a failure under strict=True."""
+    report = lc.check(
+        build, sources,
+        timestamps={"prices": "available_at", "filings": "available_at"},
+        declared={"momentum": ["prices", "filings"], "earnings_yield": ["filings", "prices"],
+                  "turnover": ["prices", "filings"]},
+    )
+    assert report.bypassed and report.clean
+    report.raise_for_leaks()
+    with pytest.raises(AssertionError, match="bypass"):
+        report.raise_for_leaks(strict=True)
+
+
 def test_nondeterministic_compute_is_refused(sources):
     def unstable(src):
         return pd.DataFrame({"x": np.random.default_rng().normal(size=len(src["prices"]))})

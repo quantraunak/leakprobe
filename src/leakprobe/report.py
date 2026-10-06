@@ -80,12 +80,23 @@ class Report:
     def clean(self) -> bool:
         return not self.leaks and not self.future
 
-    def raise_for_leaks(self) -> None:
-        """For use in a test suite: turn a leak into a failure."""
+    def raise_for_leaks(self, strict: bool = False) -> None:
+        """For use in a test suite: turn a leak into a failure.
+
+        Fails on `leaks` and `future`. With `strict=True` it also fails on
+        `bypassed`: a feature that declares a source and did not respond to its
+        clock is reading it by a path that ignores availability, which is how a
+        missing cutoff filter looks before the cutoff probe runs. The default
+        leaves those as warnings because a stale declaration produces the same
+        signal; turn it on once the declaration map has been reviewed.
+        """
         bad = self.leaks + self.future
+        if strict:
+            bad = bad + self.bypassed
         if bad:
             listed = "\n".join(f"  - {f}" for f in bad)
-            raise AssertionError(f"{len(bad)} temporal leak(s):\n{listed}")
+            noun = "temporal leak(s)" if not strict else "temporal leak(s) or bypass(es)"
+            raise AssertionError(f"{len(bad)} {noun}:\n{listed}")
 
     def __str__(self) -> str:
         width = max((len(f) for f in self.features), default=7)

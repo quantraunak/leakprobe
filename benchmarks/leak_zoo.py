@@ -13,8 +13,8 @@ Shapes under test:
   S2  undeclared source read    feature quietly reads a second table it never declared
   S3  outcome leakage           feature reads a field only knowable after the event,
                                 where that field lives in a table with its own later clock
-  S4  same-clock outcome        the outcome field sits in the same table under the same
-                                timestamp as the event -- expected MISS, see the report
+  S4  same-clock outcome        the outcome field sits in the same table, same row, under
+                                the same timestamp as the event -- expected MISS, see below
   S5  global normalisation      z-score against statistics computed over all of time
 
 Datasets: UCI Online Retail, NYC yellow taxi, Chicago crimes, NYC 311, UCI bike
@@ -163,14 +163,30 @@ TAXI_DECL = {"trip_count": ["trips"], "avg_fare": ["trips"],
 
 
 # ---------------------------------------------------------------- crimes ---
-def crime_sources():
+def _crime_frame():
     frame = pd.read_csv(DATA / "crimes.csv", usecols=[
         "id", "date", "primary_type", "district", "arrest", "updated_on"],
         parse_dates=["date", "updated_on"])
-    frame = frame[frame.district.notna()]
+    return frame[frame.district.notna()]
+
+
+def crime_sources():
+    frame = _crime_frame()
     reports = frame[["id", "date", "primary_type", "district"]].reset_index(drop=True)
     # The disposition is knowable only later, and carries its own clock. This is
     # the honest shape of outcome leakage: a separate table with a later stamp.
+    dispositions = frame[["id", "arrest", "updated_on"]].reset_index(drop=True)
+    return {"reports": reports, "dispositions": dispositions}
+
+
+def crime_sameclock_sources():
+    """The shape the Chicago file actually ships in: `arrest` sits in the event's
+    own row, stamped with the event's date, even though it was decided later.
+    The dispositions table is still present and still undeclared, but nothing
+    needs it -- the outcome is already in the table every feature is allowed
+    to read."""
+    frame = _crime_frame()
+    reports = frame[["id", "date", "primary_type", "district", "arrest"]].reset_index(drop=True)
     dispositions = frame[["id", "arrest", "updated_on"]].reset_index(drop=True)
     return {"reports": reports, "dispositions": dispositions}
 
@@ -205,17 +221,25 @@ def crime_s3(sources):
 
 
 def crime_s4(sources):
-    """Same-clock outcome: arrest read through the reports table's own timestamp.
+    """Same-clock outcome: the arrest flag read off the reports row itself.
 
-    Expected MISS. Perturbing the reports clock moves this feature exactly as it
-    moves a legitimate one, so no invariant is violated and nothing distinguishes
-    it. Recorded because the boundary is the point.
+    Takes `crime_sameclock_sources`, where `arrest` is a column of `reports`.
+    The feature declares `reports`, filters on the reports clock, and never
+    touches `dispositions`. It is still outcome leakage -- an arrest is decided
+    after the report is filed -- but the data model has already erased that.
+
+    Expected MISS. Delaying the reports clock moves this feature exactly as it
+    moves `report_count`, so it reads as declared. Shuffling `dispositions`
+    cannot touch a column that lives in `reports`. Truncating at the cutoff
+    removes nothing it had not already filtered out. No invariant is violated
+    because, as far as the tables say, none has been: the leak is in the data
+    model, not the code, and a perturbation of availability cannot see it.
+    Recorded because the boundary is the point.
     """
     cutoff = CUTOFF["crimes"]
     reports, disp, vr, vd, index = _crime_base(sources, cutoff)
     out = crime_correct(sources)
-    joined = vr.merge(disp[["id", "arrest"]], on="id", how="left")
-    out["arrest_rate_sameclock"] = joined.groupby("district").arrest.mean().reindex(index).fillna(0.0)
+    out["arrest_rate_sameclock"] = vr.groupby("district").arrest.mean().reindex(index).fillna(0.0)
     return out
 
 
@@ -302,6 +326,7 @@ BIKE_DECL = {"mean_count": ["hourly"], "mean_temp": ["hourly"]}
 def cases() -> list[Case]:
     r, t, c, n, b = (retail_sources(), taxi_sources(), crime_sources(),
                      nyc311_sources(), bike_sources())
+    c4 = crime_sameclock_sources()
     CUTOFF.update({"retail": pd.Timestamp("2011-09-01"), "taxi": pd.Timestamp("2024-01-20"),
                    "crimes": pd.Timestamp("2023-09-01"), "nyc311": pd.Timestamp("2023-06-20"),
                    "bike": pd.Timestamp("2012-09-01")})
@@ -320,7 +345,7 @@ def cases() -> list[Case]:
         Case("taxi", "S2 undeclared read", "S2", taxi_s2, t, tt, TAXI_DECL, "avg_distance"),
         Case("crimes", "correct", None, crime_correct, c, ct, CRIME_DECL, None),
         Case("crimes", "S3 outcome leakage", "S3", crime_s3, c, ct, CRIME_DECL, "arrest_rate"),
-        Case("crimes", "S4 same-clock outcome", "S4", crime_s4, c, ct, CRIME_DECL,
+        Case("crimes", "S4 same-clock outcome", "S4", crime_s4, c4, ct, CRIME_DECL,
              "arrest_rate_sameclock"),
         Case("nyc311", "correct", None, n311_correct, n, nt, N311_DECL, None),
         Case("nyc311", "S3 outcome leakage", "S3", n311_s3, n, nt, N311_DECL, "avg_resolution_hours"),
@@ -350,27 +375,46 @@ def main() -> None:
         leaked = {f.feature for f in report.leaks}
         future = {f.feature for f in report.future}   # declared, read past the cutoff
         bypass = {f.feature for f in report.bypassed}
-        flagged = leaked | future | bypass
+        # A catch is what `raise_for_leaks()` would fail on: leak or future. A
+        # bypass warning is advisory and only fails the gate under strict=True,
+        # so it is scored on its own line rather than folded into "caught".
+        hard = leaked | future
+        soft = bypass - hard
         if case.shape is None:
-            verdict = "clean" if not flagged else "FALSE POSITIVE"
+            verdict = "clean" if not hard else "FALSE POSITIVE"
+        elif case.expect in hard:
+            verdict = "caught"
+        elif case.expect in soft:
+            verdict = "bypass only"
         else:
-            verdict = "caught" if case.expect in flagged else "MISSED"
+            verdict = "MISSED"
         rows.append({"dataset": case.dataset, "case": case.name, "shape": case.shape or "-",
-                     "flagged": ", ".join(sorted(flagged)) or "(nothing)", "verdict": verdict})
+                     "flagged": ", ".join(sorted(hard)) or "(nothing)",
+                     "bypass": ", ".join(sorted(soft)) or "-", "verdict": verdict})
 
     frame = pd.DataFrame(rows)
     width = max(len(r["case"]) for r in rows)
-    print(f"\n{'dataset':<9} {'case':<{width}} {'verdict':<15} flagged")
+    fw = max(len(r["flagged"]) for r in rows)
+    print(f"\n{'dataset':<9} {'case':<{width}} {'verdict':<15} {'flagged':<{fw}}  bypass?")
     for r in rows:
-        print(f"{r['dataset']:<9} {r['case']:<{width}} {r['verdict']:<15} {r['flagged']}")
+        print(f"{r['dataset']:<9} {r['case']:<{width}} {r['verdict']:<15} {r['flagged']:<{fw}}  "
+              f"{r['bypass']}")
 
     correct = frame[frame["shape"] == "-"]
     bugged = frame[frame["shape"] != "-"]
     print(f"\ncorrect pipelines : {(correct.verdict == 'clean').sum()}/{len(correct)} clean "
-          f"({(correct.verdict == 'FALSE POSITIVE').sum()} false positives)")
-    print(f"planted leaks     : {(bugged.verdict == 'caught').sum()}/{len(bugged)} caught")
+          f"({(correct.verdict == 'FALSE POSITIVE').sum()} false positives, "
+          f"{(correct.bypass != '-').sum()} with a bypass warning)")
+    print(f"planted leaks     : {(bugged.verdict == 'caught').sum()}/{len(bugged)} caught "
+          f"({(bugged.verdict == 'bypass only').sum()} bypass-only, "
+          f"{(bugged.verdict == 'MISSED').sum()} missed)")
     for shape, g in bugged.groupby("shape"):
-        print(f"  {shape}: {(g.verdict=='caught').sum()}/{len(g)}")
+        extra = ""
+        if (g.verdict == "bypass only").any():
+            extra = f" (+{(g.verdict == 'bypass only').sum()} bypass only)"
+        if (g.verdict == "MISSED").any():
+            extra += f" ({(g.verdict == 'MISSED').sum()} missed)"
+        print(f"  {shape}: {(g.verdict=='caught').sum()}/{len(g)}{extra}")
 
 
 if __name__ == "__main__":
