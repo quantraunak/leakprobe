@@ -149,7 +149,7 @@ Three probes now run, asking different questions. Does this feature filter on
 this clock, does it touch this table's contents, and does it reach past the
 cutoff.
 
-9 of 9 caught. Still 0 false positives on the 5 correct pipelines.
+8 of 9 caught; the ninth, a same-row leak, is invisible to it by construction. Still 0 false positives on the 5 correct pipelines.
 
 ## What it still cannot see
 

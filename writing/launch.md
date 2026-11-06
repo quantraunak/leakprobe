@@ -33,7 +33,7 @@ First comment, post it yourself right after submitting:
     it should move, is reported.
 
     Benchmark: 5 public datasets (UCI retail, NYC taxi, Chicago crimes, NYC
-    311, UCI bike), 9 planted leaks in 5 shapes. 9/9 caught, 0 false positives
+    311, UCI bike), 9 planted leaks in 5 shapes. 8/9 caught (the ninth, a same-row leak, is invisible by construction), 0 false positives
     on the 5 correct pipelines. The first version caught 6/9; the misses all had
     one cause, and the write-up covers what the tool still cannot see.
 
@@ -68,7 +68,7 @@ Body:
     finding: an undeclared dependency, a declared source read past the cutoff,
     and a declared source the feature never actually consulted the clock of.
 
-    Benchmark on 5 public datasets with 9 planted leaks in 5 shapes: 9/9 caught,
+    Benchmark on 5 public datasets with 9 planted leaks in 5 shapes: 8/9 caught,
     0 false positives on the 5 correct pipelines. The first version caught
     6/9; the three misses shared one cause (features that responded to a
     delayed clock exactly as correct code does), which is what the second and
@@ -112,7 +112,7 @@ Body:
 5/
     Benchmark: 5 public datasets, 9 planted leaks, 5 shapes.
     v0.1 caught 6/9. The misses had one cause.
-    v0.2 catches 9/9, 0 false positives on the 5 correct pipelines.
+    v0.2 catches 8/9, 0 false positives on the 5 correct pipelines.
 
 6/
     What it still can't see, and why, is in the write-up:
@@ -147,4 +147,4 @@ Body:
 "How slow is it?"
     3 probes x number of sources runs of your feature function, plus one
     determinism check. Cost is your pipeline's cost times that. The five-
-    dataset zoo (14 pipelines, ~600 MB of data) runs in 13 seconds on a laptop.
+    dataset zoo (14 pipelines, ~300 MB of data) runs in 13 seconds on a laptop.

@@ -20,7 +20,7 @@ have been, you would not have the bug.
 You do not need the right answer. You need an invariant: **changing when a data source
 became available must change the features that read it, and must leave the features that do
 not read it bit-identical.** That is a metamorphic relation, the standard move for programs
-where no oracle exists ([Chen's oracle problem](https://dl.acm.org/doi/10.1145/3143561)),
+where no oracle exists (the oracle problem; metamorphic testing, Chen et al. 1998, [review](https://dl.acm.org/doi/10.1145/3143561)),
 and leakage fits it exactly because look-ahead is by construction a dependency on time.
 
 ## Result
@@ -50,7 +50,18 @@ was S3 with fewer columns, and has been replaced with the real one.
 
 A catch here means `raise_for_leaks()` would fail: a `leak` or a `future` finding. A
 `bypass?` warning on its own is not counted, and the benchmark prints it in a separate
-column so it cannot inflate the score. On this benchmark no case is bypass-only.
+column so it cannot inflate the score. With a cutoff passed, no case is bypass-only.
+
+The score depends on passing `cutoff=`, which enables the `truncate` probe:
+
+| configuration | caught | false positives |
+|---|---|---|
+| as shipped (`cutoff` passed, all probes) | 8 / 9 | 0 / 5 |
+| `shuffle` probe off | 8 / 9 | 0 / 5 |
+| no `cutoff` | 4 / 9 | 0 / 5 |
+| `by` = 7 or 90 days instead of 21 | 8 / 9 | 0 / 5 |
+
+Without a cutoff, the three S1 cases are bypass-only and S5 is missed.
 
 **The first release, 0.1.0, scored 6 of 9.** All three misses shared a cause: `delay`
 only removes rows from code that *filters* on a timestamp. Code that joins a table and
@@ -70,7 +81,9 @@ One perturbation is never enough, so three run:
 | `truncate` | rows after your cutoff deleted | a global mean or z-score denominator taken over all of time |
 
 `shuffle` runs only on pairs the user declared independent, so it turns that declaration
-into something tested rather than assumed, and costs no false positives. `truncate` is the
+into something tested rather than assumed; it produced no false positives on the five clean
+pipelines. When a cutoff is passed, `truncate` also catches the joined-column cases
+(S3); `shuffle` is what catches them when no cutoff is available. `truncate` is the
 only probe that catches an all-of-time statistic, because those respond to a delayed clock
 exactly as correct code does.
 
@@ -106,7 +119,7 @@ Then, from a clone of this repository:
 
 ```bash
 python -m pytest                   # 23 tests
-python examples/online_retail.py   # real data, two planted bugs, both caught
+python examples/online_retail.py   # real data, two planted bugs, both caught (with cutoff=)
 python benchmarks/fetch_data.py    # ~300 MB of public data, cached
 python benchmarks/leak_zoo.py      # the full 8/9 table above
 ```
@@ -116,8 +129,9 @@ python benchmarks/leak_zoo.py      # the full 8/9 table above
 Point it at a feature pipeline, declare what each feature is supposed to read, and it tells
 you what moved that shouldn't have. It found `turnover_1m` in a 22-factor study — a
 price-and-volume factor that divides by shares outstanding, so it silently inherited the
-filing calendar, in a design whose whole point was that the price block could not. That bug
-was worth 59% of mean IC and four spurious t-statistics.
+filing calendar, in a design whose whole point was that the price block could not. In the
+same study, the dating mistake it belongs to (joining fundamentals on period end rather than
+filing date) inflated mean IC by 59% and produced four spurious t-statistics.
 
 [Full write-up](https://raunaksood.vercel.app/writing/testing-for-leakage).
 
@@ -186,11 +200,14 @@ total_spend         reads it     exactly 0
 order_count         reads it     exactly 0
 recency_days        reads it     exactly 0
 return_count       exactly 0      reads it
-avg_unit_price       bypass?     exactly 0
+avg_unit_price        FUTURE     exactly 0
 net_spend           reads it          LEAK
 
 1 undeclared dependencies:
   - net_spend moved when returns was perturbed, and does not declare it (max change 7.46e+03)
+
+Declared, but read rows after the cutoff:
+  - avg_unit_price declares orders and changed when rows after the cutoff were removed (max change 426)
 
 Declared, but did not respond to the source's clock:
   - avg_unit_price declares orders but did not move when its clock did
@@ -311,6 +328,12 @@ fail too:
 The declaration map becomes the thing code review argues about, which is where
 that argument belongs.
 
+`strict=True` is only sound for entity-aggregate features with a dense source. It fails
+correct code in two shapes: per-row features (a correct trailing `shift(1)` inside an
+event table moves with its own timestamp, so `delay` cannot tell it from a leak), and
+sparse sources where no row falls inside `(cutoff - by, cutoff]` (quarterly filings with
+`by` of 21 days). Choose `by` larger than the source's cadence.
+
 ## Perturbations
 
 | | |
@@ -318,6 +341,8 @@ that argument belongs.
 | `delay(frame, col, by)` | knowable later. The safe default: removes information only. |
 | `advance(frame, col, by)` | knowable earlier. Injects look-ahead on purpose, to measure what a leak is worth. |
 | `use_column(frame, col, other)` | availability taken from another column. Models "treated as knowable when the period ended, not when it was published." |
+| `truncate(frame, col, cutoff)` | rows after the cutoff deleted. Run by `check` when `cutoff=` is passed. |
+| `shuffle(frame, col, seed)` | payload permuted within the table, clock intact. Run by `check` on undeclared pairs. |
 
 ```python
 report = lp.check(..., perturb=lp.advance, by=pd.Timedelta(days=90))
@@ -325,13 +350,10 @@ report = lp.check(..., perturb=lp.advance, by=pd.Timedelta(days=90))
 
 ## What it will not catch
 
-**Dependencies that don't flow through a timestamp.** The perturbation moves
-availability, so it reveals as-of joins, merges on a date, and windows anchored
-to one. A feature that reads a source's values with no reference to when they
-arrived is invariant to it and will not be flagged. In practice this costs less
-than it sounds: look-ahead *is* a dependency on timing, so the leaks worth
-catching are the detectable ones. The boundary is asserted in the test suite so
-it can't quietly stop being true.
+**Column marginals of an undeclared table.** A feature that reads only a mean, max or
+quantile of an undeclared table, never joining on a key or consulting a timestamp, is
+invariant to every probe: `shuffle` preserves marginals and `delay` moves no clock it reads.
+The boundary is asserted in the test suite.
 
 **Sources with no clock.** Pass `None` and static tables are skipped, with a
 note saying dependencies on them went untested.

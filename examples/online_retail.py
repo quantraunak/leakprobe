@@ -101,6 +101,7 @@ def main() -> None:
             "avg_unit_price": ["orders"],
             "net_spend":      ["orders"],
         },
+        cutoff=CUTOFF,
     )
     print(report)
     print("\nexpected: avg_unit_price ignores the clock, net_spend reads returns undeclared")

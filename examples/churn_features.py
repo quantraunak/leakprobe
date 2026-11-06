@@ -82,6 +82,7 @@ report = lc.check(
         "tickets_resolved": ["tickets"],
         "avg_severity": ["tickets"],
     },
+    cutoff=CUTOFF,
 )
 
 print(report)
